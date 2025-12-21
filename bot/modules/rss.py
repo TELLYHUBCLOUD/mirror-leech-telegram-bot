@@ -662,11 +662,9 @@ Timeout: 60 sec. Argument -c for command and arguments
 async def rss_monitor():
     chat = Config.RSS_CHAT
     if not chat:
-        LOGGER.warning("RSS_CHAT not added! Shutting down rss scheduler...")
-        scheduler.shutdown(wait=False)
+        LOGGER.warning("RSS_CHAT not added! RSS Scheduler will remain idle.")
         return
     if len(rss_dict) == 0:
-        scheduler.pause()
         return
     all_paused = True
     rss_topic_id = rss_chat_id = None
@@ -726,7 +724,8 @@ async def rss_monitor():
                     try:
                         await sleep(10)
                     except:
-                        raise RssShutdownException("Rss Monitor Stopped!")
+                        LOGGER.warning("Rss Monitor Stopped!")
+                        return
                     try:
                         item_title = rss_d.entries[feed_count]["title"]
                         try:
@@ -814,11 +813,12 @@ async def rss_monitor():
             except Exception as e:
                 LOGGER.error(f"{e} - Feed Name: {title} - Feed Link: {data['link']}")
                 continue
-    if all_paused:
-        scheduler.pause()
 
 
 def add_job():
+    if not Config.RSS_CHAT:
+        LOGGER.warning("RSS_CHAT not defined. RSS job will not be added.")
+        return
     scheduler.add_job(
         rss_monitor,
         trigger=IntervalTrigger(seconds=Config.RSS_DELAY),
