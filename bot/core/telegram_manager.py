@@ -33,7 +33,12 @@ class TgClient:
             sleep_threshold=0,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
-        await cls.bot.start()
+        try:
+            await cls.bot.start()
+        except FloodWait as e:
+            LOGGER.warning(f"Telegram FloodWait triggered. Waiting for {e.value} seconds...")
+            await sleep(e.value)
+            await cls.bot.start()
         cls.NAME = cls.bot.me.username
 
     @classmethod
