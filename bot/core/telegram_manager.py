@@ -1,6 +1,7 @@
 from pyrogram import Client, enums
 from pyrogram.types import LinkPreviewOptions
-from asyncio import Lock
+from pyrogram.errors import FloodWait
+from asyncio import Lock, sleep
 
 from .. import LOGGER
 from .config_manager import Config
