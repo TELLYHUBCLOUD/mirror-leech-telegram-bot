@@ -255,6 +255,9 @@ async def load_configurations():
     ).wait()
 
     if Config.BASE_URL:
+        # Check if we are running in a worker context (simple heuristic or config)
+        # For now, we launch it but don't let it crash the startup if it fails
+        LOGGER.info("Starting Gunicorn server...")
         await create_subprocess_shell(
             f"gunicorn -k uvicorn.workers.UvicornWorker -w 1 web.wserver:app --bind 0.0.0.0:{Config.BASE_URL_PORT}"
         )
