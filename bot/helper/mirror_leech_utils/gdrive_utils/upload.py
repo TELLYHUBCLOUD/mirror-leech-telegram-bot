@@ -30,9 +30,9 @@ class GoogleDriveUpload(GoogleDriveHelper):
         self.is_uploading = True
 
     def user_setting(self):
-        if self.listener.up_dest.startswith("mtp:"):
+        if self.listener.up_dest.startswith("mt:"):
             self.token_path = f"tokens/{self.listener.user_id}.pickle"
-            self.listener.up_dest = self.listener.up_dest.replace("mtp:", "", 1)
+            self.listener.up_dest = self.listener.up_dest.replace("mt:", "", 1)
             self.use_sa = False
         elif self.listener.up_dest.startswith("tp:"):
             self.listener.up_dest = self.listener.up_dest.replace("tp:", "", 1)
@@ -88,18 +88,15 @@ class GoogleDriveUpload(GoogleDriveHelper):
                     self.service.files().delete(
                         fileId=dir_id, supportsAllDrives=True
                     ).execute()
-                return
-            elif self._is_errored:
-                return
-            async_to_sync(
-                self.listener.on_upload_complete,
-                link,
-                self.total_files,
-                self.total_folders,
-                mime_type,
-                dir_id=self.get_id_from_url(link),
-            )
-            return
+            elif not self._is_errored:
+                async_to_sync(
+                    self.listener.on_upload_complete,
+                    link,
+                    self.total_files,
+                    self.total_folders,
+                    mime_type,
+                    dir_id=self.get_id_from_url(link),
+                )
 
     def _upload_dir(self, input_directory, dest_id):
         list_dirs = listdir(input_directory)

@@ -5,11 +5,13 @@ from os import walk, path as ospath
 from secrets import token_urlsafe
 from aioshutil import move, rmtree
 from pyrogram.enums import ChatAction
+from pyrogram.types import InputRichMessage
 from re import sub, I, findall
 from shlex import split
 from collections import Counter
 from copy import deepcopy
 from natsort import natsorted
+
 
 from .. import (
     user_data,
@@ -57,6 +59,7 @@ from .ext_utils.media_utils import (
 )
 from .telegram_helper.message_utils import (
     send_message,
+    send_rich_message,
     send_status_message,
     get_tg_link_message,
     temp_download,
@@ -87,6 +90,9 @@ class TaskConfig:
         self.size = 0
         self.subsize = 0
         self.proceed_count = 0
+        self._alldebrid_magnet_id = 0
+        self._torbox_torrent_id = 0
+        self._torbox_web_id = 0
         self.is_leech = False
         self.is_qbit = False
         self.is_nzb = False
@@ -94,6 +100,10 @@ class TaskConfig:
         self.is_clone = False
         self.is_ytdlp = False
         self.is_gallerydl = False
+        self.is_alldebrid = False
+        self.is_torbox = False
+        self.is_buzzheavier = False
+        self.is_gofile = False
         self.equal_splits = False
         self.user_transmission = False
         self.hybrid_leech = False
@@ -136,7 +146,7 @@ class TaskConfig:
         ]
 
     def get_token_path(self, dest):
-        if dest.startswith("mtp:"):
+        if dest.startswith("mt:"):
             return f"tokens/{self.user_id}.pickle"
         elif (
             dest.startswith("sa:")
@@ -149,7 +159,7 @@ class TaskConfig:
 
     def get_config_path(self, dest):
         return (
-            f"rclone/{self.user_id}.conf" if dest.startswith("mrcc:") else "rclone.conf"
+            f"rclone/{self.user_id}.conf" if dest.startswith("mt:") else "rclone.conf"
         )
 
     async def is_token_exists(self, path, status):
@@ -199,16 +209,16 @@ class TaskConfig:
         if self.link not in ["rcl", "gdl"]:
             if not self.is_jd:
                 if is_rclone_path(self.link):
-                    if not self.link.startswith("mrcc:") and self.user_dict.get(
+                    if not self.link.startswith("mt:") and self.user_dict.get(
                         "USER_TOKENS", False
                     ):
-                        self.link = f"mrcc:{self.link}"
+                        self.link = f"mt:{self.link}"
                     await self.is_token_exists(self.link, "dl")
                 elif is_gdrive_link(self.link):
                     if not self.link.startswith(
-                        ("mtp:", "tp:", "sa:")
+                        ("mt:", "tp:", "sa:")
                     ) and self.user_dict.get("USER_TOKENS", False):
-                        self.link = f"mtp:{self.link}"
+                        self.link = f"mt:{self.link}"
                     await self.is_token_exists(self.link, "dl")
         elif self.link == "rcl":
             if not self.is_ytdlp and not self.is_jd and not self.is_gallerydl:
@@ -221,7 +231,7 @@ class TaskConfig:
                 if not is_gdrive_id(self.link):
                     raise ValueError(self.link)
 
-        self.user_transmission = TgClient.IS_PREMIUM_USER and (
+        self.user_transmission = (
             self.user_dict.get("USER_TRANSMISSION")
             or Config.USER_TRANSMISSION
             and "USER_TRANSMISSION" not in self.user_dict
@@ -266,14 +276,42 @@ class TaskConfig:
                                 cmds.append(vl)
             self.ffmpeg_cmds = cmds
 
-        if not self.is_leech:
+        default_upload = (
+            self.user_dict.get("DEFAULT_UPLOAD", "") or Config.DEFAULT_UPLOAD
+        )
+        if (
+            default_upload == "bh"
+            or self.up_dest == "bh"
+            or self.up_dest.startswith(("bh:", "mt:bh:"))
+        ):
+            if not self.up_dest and default_upload == "bh":
+                self.up_dest = (
+                    self.user_dict.get("BUZZHEAVIER_FOLDER_ID")
+                    or Config.BUZZHEAVIER_FOLDER_ID
+                )
+            if self.user_dict.get("USER_TOKENS", False) and (
+                self.up_dest and not self.up_dest.startswith("mt:")
+            ):
+                self.up_dest = f"mt:{self.up_dest}"
+            if self.up_dest.startswith("mt:") and not self.user_dict.get(
+                "BUZZHEAVIER_ACCOUNT_ID"
+            ):
+                raise ValueError(
+                    "BUZZHEAVIER_ACCOUNT_ID is required to be filled in user settings to upload to your own account!"
+                )
+            elif not Config.BUZZHEAVIER_ACCOUNT_ID:
+                raise ValueError(
+                    "BUZZHEAVIER_ACCOUNT_ID is required to be filled in config to upload to Buzzheavier!"
+                )
+            self.is_buzzheavier = True
+        elif default_upload == "gf" or self.up_dest == "gf":
+            self.is_gofile = True
+
+        if not self.is_leech and not self.is_buzzheavier and not self.is_gofile:
             self.stop_duplicate = (
                 self.user_dict.get("STOP_DUPLICATE")
                 or "STOP_DUPLICATE" not in self.user_dict
                 and Config.STOP_DUPLICATE
-            )
-            default_upload = (
-                self.user_dict.get("DEFAULT_UPLOAD", "") or Config.DEFAULT_UPLOAD
             )
             if (not self.up_dest and default_upload == "rc") or self.up_dest == "rc":
                 self.up_dest = self.user_dict.get("RCLONE_PATH") or Config.RCLONE_PATH
@@ -284,14 +322,14 @@ class TaskConfig:
             if self.up_dest not in ["rcl", "gdl"]:
                 if is_gdrive_id(self.up_dest):
                     if not self.up_dest.startswith(
-                        ("mtp:", "tp:", "sa:")
+                        ("mt:", "tp:", "sa:")
                     ) and self.user_dict.get("USER_TOKENS", False):
-                        self.up_dest = f"mtp:{self.up_dest}"
+                        self.up_dest = f"mt:{self.up_dest}"
                 elif is_rclone_path(self.up_dest):
-                    if not self.up_dest.startswith("mrcc:") and self.user_dict.get(
+                    if not self.up_dest.startswith("mt:") and self.user_dict.get(
                         "USER_TOKENS", False
                     ):
-                        self.up_dest = f"mrcc:{self.up_dest}"
+                        self.up_dest = f"mt:{self.up_dest}"
                     self.up_dest = self.up_dest.strip("/")
                 else:
                     raise ValueError("Wrong Upload Destination!")
@@ -334,7 +372,7 @@ class TaskConfig:
                     self.link
                 ) != self.get_config_path(self.up_dest):
                     raise ValueError("You must use the same config to clone!")
-        else:
+        elif not self.is_buzzheavier and not self.is_gofile:
             self.up_dest = (
                 self.up_dest
                 or self.user_dict.get("LEECH_DUMP_CHAT")
@@ -353,7 +391,7 @@ class TaskConfig:
                 self.user_transmission = False
                 self.hybrid_leech = False
             if self.user_trans:
-                self.user_transmission = TgClient.IS_PREMIUM_USER
+                self.user_transmission = True
             if self.up_dest:
                 if not isinstance(self.up_dest, int):
                     if self.up_dest.startswith("b:"):
@@ -362,11 +400,13 @@ class TaskConfig:
                         self.hybrid_leech = False
                     elif self.up_dest.startswith("u:"):
                         self.up_dest = self.up_dest.replace("u:", "", 1)
-                        self.user_transmission = TgClient.IS_PREMIUM_USER
+                        self.user_transmission = True
                     elif self.up_dest.startswith("h:"):
                         self.up_dest = self.up_dest.replace("h:", "", 1)
-                        self.user_transmission = TgClient.IS_PREMIUM_USER
-                        self.hybrid_leech = self.user_transmission
+                        self.user_transmission = True
+                        self.hybrid_leech = (
+                            self.user_transmission and TgClient.IS_PREMIUM_USER
+                        )
                     if "|" in self.up_dest:
                         self.up_dest, self.chat_thread_id = list(
                             map(
@@ -390,32 +430,31 @@ class TaskConfig:
                         )
                         self.user_transmission = False
                         self.hybrid_leech = False
-                    else:
-                        if chat.type.name not in [
-                            "SUPERGROUP",
-                            "CHANNEL",
-                            "GROUP",
-                            "FORUM",
-                        ]:
+                    elif chat.type.name not in [
+                        "SUPERGROUP",
+                        "CHANNEL",
+                        "GROUP",
+                        "FORUM",
+                    ]:
+                        self.user_transmission = False
+                        self.hybrid_leech = False
+                    elif chat.is_admin:
+                        member = await chat.get_member(TgClient.user.me.id)
+                        if (
+                            not member.privileges.can_manage_chat
+                            or not member.privileges.can_delete_messages
+                        ):
                             self.user_transmission = False
                             self.hybrid_leech = False
-                        elif chat.is_admin:
-                            member = await chat.get_member(TgClient.user.me.id)
-                            if (
-                                not member.privileges.can_manage_chat
-                                or not member.privileges.can_delete_messages
-                            ):
-                                self.user_transmission = False
-                                self.hybrid_leech = False
-                                LOGGER.warning(
-                                    "Enable manage chat and delete messages to account of the user session from administration settings!"
-                                )
-                        else:
                             LOGGER.warning(
-                                "Promote the account of the user session to admin in the chat to get the benefit of user transmission!"
+                                "Enable manage chat and delete messages to account of the user session from administration settings!"
                             )
-                            self.user_transmission = False
-                            self.hybrid_leech = False
+                    else:
+                        LOGGER.warning(
+                            "Promote the account of the user session to admin in the chat to get the benefit of user transmission!"
+                        )
+                        self.user_transmission = False
+                        self.hybrid_leech = False
 
                 if not self.user_transmission or self.hybrid_leech:
                     try:
@@ -478,7 +517,9 @@ class TaskConfig:
                 and "EQUAL_SPLITS" not in self.user_dict
             )
             self.max_split_size = (
-                TgClient.MAX_SPLIT_SIZE if self.user_transmission else 2097152000
+                TgClient.MAX_SPLIT_SIZE
+                if self.user_transmission and TgClient.IS_PREMIUM_USER
+                else 2097152000
             )
             self.split_size = min(self.split_size, self.max_split_size)
 
@@ -555,10 +596,10 @@ class TaskConfig:
         await sleep(7)
         if not self.multi_tag and self.multi > 1:
             self.multi_tag = token_urlsafe(3)
-            multi_tags.add(self.multi_tag)
+            multi_tags[self.multi_tag] = self.user_id
         elif self.multi <= 1:
             if self.multi_tag in multi_tags:
-                multi_tags.discard(self.multi_tag)
+                del multi_tags[self.multi_tag]
             return
         if self.multi_tag and self.multi_tag not in multi_tags:
             await send_message(
@@ -574,7 +615,7 @@ class TaskConfig:
             msg.append(f"{self.bulk[0]} -i {self.multi - 1} {self.options}")
             msgts = " ".join(msg)
             if self.multi > 2:
-                msgts += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
+                msgts += f"<br><tg-button type='callback_data' data='cancel multi {self.multi_tag}' style='danger'>Cancel Multi</tg-button>"
             nextmsg = await send_message(self.message, msgts)
         else:
             msg = [s.strip() for s in input_list]
@@ -593,8 +634,8 @@ class TaskConfig:
                 return
             msgts = " ".join(msg)
             if self.multi > 2:
-                msgts += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
-            nextmsg = await send_message(nextmsg, msgts)
+                msgts += f"<br><tg-button type='callback_data' data='cancel multi {self.multi_tag}' style='danger'>Cancel Multi</tg-button>"
+            nextmsg = await send_rich_message(nextmsg, InputRichMessage(html=msgts))
         if self.message.from_user:
             nextmsg.from_user = self.user
         else:
@@ -630,9 +671,9 @@ class TaskConfig:
             msg = " ".join(b_msg)
             if len(self.bulk) > 2:
                 self.multi_tag = token_urlsafe(3)
-                multi_tags.add(self.multi_tag)
-                msg += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
-            nextmsg = await send_message(self.message, msg)
+                multi_tags[self.multi_tag] = self.user_id
+                msg += f"<br><tg-button type='callback_data' data='cancel multi {self.multi_tag}' style='danger'>Cancel Multi</tg-button>"
+            nextmsg = await send_rich_message(self.message, InputRichMessage(html=msg))
             if self.message.from_user:
                 nextmsg.from_user = self.user
             else:
@@ -661,7 +702,8 @@ class TaskConfig:
         if self.is_file and is_archive(dl_path):
             self.files_to_proceed.append(dl_path)
         else:
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     if (
                         is_first_archive_split(file_)
@@ -678,9 +720,10 @@ class TaskConfig:
         LOGGER.info(f"Extracting: {self.name}")
         async with task_dict_lock:
             task_dict[self.mid] = SevenZStatus(self, sevenz, gid, "Extract")
-        for dirpath, _, files in await sync_to_async(
-            walk, self.up_dir or self.dir, topdown=False
-        ):
+        walk_data = await sync_to_async(
+            lambda: list(walk(self.up_dir or self.dir, topdown=False))
+        )
+        for dirpath, _, files in walk_data:
             code = 0
             for file_ in files:
                 if self.is_cancelled:
@@ -822,9 +865,10 @@ class TaskConfig:
                         await move(file_path, dl_path)
                         await rmtree(new_folder)
                 else:
-                    for dirpath, _, files in natsorted(
-                        await sync_to_async(walk, dl_path, topdown=False)
-                    ):
+                    walk_data = await sync_to_async(
+                        lambda: list(walk(dl_path, topdown=False))
+                    )
+                    for dirpath, _, files in natsorted(walk_data):
                         f_path = []
                         for file_ in natsorted(files):
                             if (
@@ -950,7 +994,8 @@ class TaskConfig:
             await move(dl_path, new_path)
             return new_path
         else:
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     new_name = perform_substitution(file_, self.name_sub)
@@ -976,7 +1021,8 @@ class TaskConfig:
                     return new_folder
         else:
             LOGGER.info(f"Creating Screenshot for: {dl_path}")
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     if (await get_document_type(f_path))[0]:
@@ -1025,7 +1071,8 @@ class TaskConfig:
         if self.is_file:
             all_files.append(dl_path)
         else:
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     all_files.append(f_path)
@@ -1106,7 +1153,8 @@ class TaskConfig:
             file_ = ospath.basename(dl_path)
             self.files_to_proceed[dl_path] = file_
         else:
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     if (await get_document_type(f_path))[0]:
@@ -1164,7 +1212,8 @@ class TaskConfig:
             if f_size > self.split_size:
                 self.files_to_proceed[dl_path] = [f_size, ospath.basename(dl_path)]
         else:
-            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+            walk_data = await sync_to_async(lambda: list(walk(dl_path, topdown=False)))
+            for dirpath, _, files in walk_data:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     f_size = await get_path_size(f_path)

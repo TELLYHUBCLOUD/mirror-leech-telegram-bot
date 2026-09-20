@@ -1,4 +1,6 @@
+from aiofiles import open as aiopen
 from aiofiles.os import path as aiopath
+from os import path as ospath
 from base64 import b64encode
 from re import match as re_match
 
@@ -17,13 +19,27 @@ from ..helper.ext_utils.links_utils import (
     is_rclone_path,
     is_telegram_link,
     is_gdrive_id,
+    is_tldv_link,
 )
 from ..helper.listeners.task_listener import TaskListener
 from ..helper.mirror_leech_utils.download_utils.aria2_download import (
     add_aria2_download,
 )
+from ..helper.mirror_leech_utils.download_utils.alldebrid_resolver import (
+    alldebrid_resolve,
+    alldebrid_resolve_magnet,
+    alldebrid_resolve_torrent,
+)
+from ..helper.mirror_leech_utils.download_utils.torbox_resolver import (
+    torbox_resolve,
+    torbox_resolve_magnet,
+    torbox_resolve_torrent,
+)
 from ..helper.mirror_leech_utils.download_utils.direct_downloader import (
     add_direct_download,
+)
+from ..helper.mirror_leech_utils.download_utils.tldv_downloader import (
+    add_tldv_download,
 )
 from ..helper.mirror_leech_utils.download_utils.direct_link_generator import (
     direct_link_generator,
@@ -72,7 +88,14 @@ class Mirror(TaskListener):
         self.is_nzb = is_nzb
 
     async def new_event(self):
-        text = self.message.text.split("\n")
+        if self.message.rich_message:
+            text = text = (
+                self.message.rich_message.blocks[0].text[0].text
+                + self.message.rich_message.blocks[0].text[1]
+            )
+        else:
+            text = self.message.text
+        text = text.split("\n")
         input_list = text[0].split(" ")
 
         args = {
@@ -92,6 +115,8 @@ class Mirror(TaskListener):
             "-hl": False,
             "-bt": False,
             "-ut": False,
+            "-ad": False,
+            "-tb": False,
             "-i": 0,
             "-sp": 0,
             "link": "",
@@ -138,6 +163,8 @@ class Mirror(TaskListener):
         self.folder_name = f"/{args["-m"]}".rstrip("/") if len(args["-m"]) > 0 else ""
         self.bot_trans = args["-bt"]
         self.user_trans = args["-ut"]
+        self.is_alldebrid = args["-ad"]
+        self.is_torbox = args["-tb"]
         self.ffmpeg_cmds = args["-ff"]
 
         headers = args["-h"]
@@ -302,8 +329,85 @@ class Mirror(TaskListener):
             await self.remove_from_same_dir()
             return
 
+        if self.is_torbox:
+            try:
+                if is_magnet(self.link):
+                    resolved = await torbox_resolve_magnet(
+                        self.link,
+                        is_cancelled=lambda: self.is_cancelled,
+                    )
+                    self._torbox_torrent_id = resolved.get("torbox_torrent_id", 0)
+                    self.link = resolved
+
+                elif (
+                    isinstance(self.link, str)
+                    and self.link.endswith(".torrent")
+                    and await aiopath.exists(self.link)
+                ):
+                    async with aiopen(self.link, "rb") as f:
+                        torrent_bytes = await f.read()
+
+                    resolved = await torbox_resolve_torrent(
+                        torrent_bytes,
+                        ospath.basename(self.link),
+                        is_cancelled=lambda: self.is_cancelled,
+                    )
+                    self._torbox_torrent_id = resolved.get("torbox_torrent_id", 0)
+                    self.link = resolved
+
+            except DirectDownloadLinkException as e:
+                msg = str(e)
+                LOGGER.info(msg)
+                if msg.startswith("ERROR:"):
+                    await send_message(self.message, msg)
+                await self.remove_from_same_dir()
+                return
+            except Exception as e:
+                await send_message(self.message, e)
+                await self.remove_from_same_dir()
+                return
+
+        if self.is_alldebrid and (
+            is_magnet(self.link) or self.link.endswith(".torrent")
+        ):
+            try:
+                if is_magnet(self.link):
+                    LOGGER.info("AllDebrid magnet route")
+                    resolved = await alldebrid_resolve_magnet(
+                        self.link,
+                        is_cancelled=lambda: self.is_cancelled,
+                    )
+                else:
+                    LOGGER.info(f"AllDebrid torrent file route: {self.link}")
+                    async with aiopen(self.link, "rb") as fh:
+                        torrent_bytes = await fh.read()
+                    resolved = await alldebrid_resolve_torrent(
+                        torrent_bytes,
+                        ospath.basename(self.link),
+                        is_cancelled=lambda: self.is_cancelled,
+                    )
+            except DirectDownloadLinkException as e:
+                msg = str(e)
+                LOGGER.info(msg)
+                if msg.startswith("ERROR:"):
+                    await send_message(self.message, msg)
+                    await self.remove_from_same_dir()
+                    return
+                resolved = None
+            except Exception as e:
+                await send_message(self.message, e)
+                await self.remove_from_same_dir()
+                return
+            if isinstance(resolved, dict):
+                self._alldebrid_magnet_id = resolved.get("magnet_id", 0)
+                self.link = resolved
+                self.is_jd = False
+                self.is_qbit = False
+
         if (
-            not self.is_jd
+            self.link
+            and isinstance(self.link, str)
+            and not self.is_jd
             and not self.is_nzb
             and not self.is_qbit
             and not is_magnet(self.link)
@@ -313,26 +417,71 @@ class Mirror(TaskListener):
             and file_ is None
             and not is_gdrive_id(self.link)
         ):
-            content_type = await get_content_type(self.link)
-            if content_type is None or re_match(r"text/html|text/plain", content_type):
+            if self.is_torbox:
                 try:
-                    self.link = await sync_to_async(direct_link_generator, self.link)
-                    if isinstance(self.link, tuple):
-                        self.link, headers = self.link
-                    elif isinstance(self.link, str):
-                        LOGGER.info(f"Generated link: {self.link}")
+                    resolved = await torbox_resolve(
+                        self.link,
+                        is_cancelled=lambda: self.is_cancelled,
+                    )
+                    self._torbox_web_id = resolved.get("torbox_web_id", 0)
+                    self.link = resolved
                 except DirectDownloadLinkException as e:
-                    e = str(e)
-                    if "This link requires a password!" not in e:
-                        LOGGER.info(e)
-                    if e.startswith("ERROR:"):
-                        await send_message(self.message, e)
+                    msg = str(e)
+                    LOGGER.info(msg)
+                    if msg.startswith("ERROR:"):
+                        await send_message(self.message, msg)
+                    await self.remove_from_same_dir()
+                    return
+                except Exception as e:
+                    await send_message(self.message, e)
+                    await self.remove_from_same_dir()
+                    return
+
+            if self.is_alldebrid:
+                try:
+                    resolved = await alldebrid_resolve(self.link)
+                    if isinstance(resolved, str):
+                        self.link = resolved
+                        LOGGER.info(f"AllDebrid link: {self.link}")
+                    else:
+                        self.link = resolved
+                except DirectDownloadLinkException as e:
+                    msg = str(e)
+                    LOGGER.info(msg)
+                    if msg.startswith("ERROR:"):
+                        await send_message(self.message, msg)
                         await self.remove_from_same_dir()
                         return
                 except Exception as e:
                     await send_message(self.message, e)
                     await self.remove_from_same_dir()
                     return
+
+            if isinstance(self.link, str):
+                content_type = await get_content_type(self.link)
+                if content_type is None or re_match(
+                    r"text/html|text/plain", content_type
+                ):
+                    try:
+                        self.link = await sync_to_async(
+                            direct_link_generator, self.link
+                        )
+                        if isinstance(self.link, tuple):
+                            self.link, headers = self.link
+                        elif isinstance(self.link, str):
+                            LOGGER.info(f"Generated link: {self.link}")
+                    except DirectDownloadLinkException as e:
+                        e = str(e)
+                        if "This link requires a password!" not in e:
+                            LOGGER.info(e)
+                        if e.startswith("ERROR:"):
+                            await send_message(self.message, e)
+                            await self.remove_from_same_dir()
+                            return
+                    except Exception as e:
+                        await send_message(self.message, e)
+                        await self.remove_from_same_dir()
+                        return
 
         if file_ is not None:
             await TelegramDownloadHelper(self).add_download(
@@ -350,6 +499,8 @@ class Mirror(TaskListener):
             await add_rclone_download(self, f"{path}/")
         elif is_gdrive_link(self.link) or is_gdrive_id(self.link):
             await add_gd_download(self, path)
+        elif is_tldv_link(self.link):
+            await add_tldv_download(self, path, headers)
         else:
             ussr = args["-au"]
             pssw = args["-ap"]

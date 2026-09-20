@@ -205,7 +205,7 @@ programming in Python.
 - Add sudo users
 - Ability to save upload paths
 - Name Substitution to rename the files before upload
-- User can select whether he want to use his rclone.conf/token.pickle without adding mpt: or mrcc: before path/gd-id
+- User can select whether he want to use his rclone.conf/token.pickle without adding mt: before path/gd-id
 - FFmpeg commands to execute it after download (task option)
 - Supported Direct links Generators:
 
@@ -296,9 +296,9 @@ Fill up rest of the fields. Meaning of each field is discussed below.
 
 - `SUDO_USERS` (`Str`):  Fill user_id of users whom you want to give sudo permission. Separate them by spaces.
 
-- `UPLOAD_PATHS` (`Dict`): Send Dict of keys that have path values. Example: {"path 1": "remote:rclonefolder", "path 2": "gdrive1 id", "path 3": "tg chat id", "path 4": "mrcc:remote:", "path 5": "b: @username"}. 
+- `UPLOAD_PATHS` (`Dict`): Send Dict of keys that have path values. Example: {"path 1": "remote:rclonefolder", "path 2": "gdrive1 id", "path 3": "tg chat id", "path 4": "mt:remote:", "path 5": "b: @username"}. 
 
-- `DEFAULT_UPLOAD` (`Str`): Whether `rc` to upload to `RCLONE_PATH` or `gd` to upload to `GDRIVE_ID`. Default is `rc`. Read More [HERE](https://github.com/anasty17/mirror-leech-telegram-bot/tree/master#upload).
+- `DEFAULT_UPLOAD` (`Str`): Whether `rc` to upload to `RCLONE_PATH` or `gd` to upload to `GDRIVE_ID` or `bh` to upload to `BUZZHEAVIER_ACCOUNT_ID`. Default is `rc`. Read More [HERE](https://github.com/anasty17/mirror-leech-telegram-bot/tree/master#upload).
 
 - `STATUS_UPDATE_INTERVAL` (`Int`): Time in seconds after which the progress/status message will be updated. Recommended `10` seconds at least.
 
@@ -322,6 +322,12 @@ options [HERE](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/YoutubeDL.py#
   - Example: {"format": "bv*+mergeall[vcodec=none]", "nocheckcertificate": True, "playliststart": 10, "fragment_retries": float("inf"), "matchtitle": "S13", "writesubtitles": True, "live_from_start": True, "postprocessor_args": {"ffmpeg": ["-threads", "4"]}, "wait_for_video": (5, 100), "download_ranges": [{"start_time": 0, "end_time": 10}]}
 
 - `GALLERY_DL_OPTIONS` (`Dict`): Dict of gallery-dl options. Supports custom gallery-dl options globally, per user, and per task. Format: {key: value, key: value}.
+
+- `ALLDEBRID_API_KEY` (`Str`): Alldebrid api key.
+
+- `BUZZHEAVIER_ACCOUNT_ID` (`Str`): Buzzheavier account ID.
+
+- `TLDV_TOKEN` (`Str`): tldv.io authorization token for downloading private meetings. Refer to the tldv.io section under Extras for how to get the token.
 
 - `USE_SERVICE_ACCOUNTS` (`Bool`): Whether to use Service Accounts or not, with google-api-python-client. For this to work
 see [Using Service Accounts](https://github.com/anasty17/mirror-leech-telegram-bot#generate-service-accounts-what-is-service-account) section below. Default is `False`.
@@ -406,7 +412,7 @@ see [Using Service Accounts](https://github.com/anasty17/mirror-leech-telegram-b
 
 - `THUMBNAIL_LAYOUT` (`Str`): Thumbnail layout (widthxheight, 2x2, 3x3, 2x4, 4x4, ...) of how many photo arranged for the thumbnail.
 
-- `FILES_LINKS` (`Bool`): Enable files link after leech complete, those link(s) will be sent in the same chat where you sent the leech cmd. Default is `False`.
+- `FILES_LINKS` (`Bool`): Enable files link after Leech complete, those link(s) will be sent in the same chat where you sent the cmd. Default is `False`.
 
 **7. qBittorrent/Aria2c/Sabnzbd**
 
@@ -707,10 +713,29 @@ python3 generate_drive_token.py
 - If `DEFAULT_UPLOAD` = 'gd' then you must fill `GDRIVE_ID` with folder/TD id.
 - rclone.conf can be added before deploy like token.pickle to repo folder root or use bsetting to upload it as private
   file.
-- If rclone.conf uploaded from usetting or added in `rclone/{user_id}.conf` then `RCLONE_PATH` must start with `mrcc:`.
+- If rclone.conf uploaded from usetting or added in `rclone/{user_id}.conf` then `RCLONE_PATH` must start with `mt:`.
 - Whenever you want to write path manually to use user rclone.conf that added from usetting then you must add
-  the `mrcc:` at the beginning.
-- So in short, up: has 4 possible values which are: `gd` (Upload to GDRIVE_ID), `rc` (Upload to RCLONE_PATH), `rcl` (Select Rclone Path) and `rclone_path` (remote:path (owner rclone.conf) or `mrcc`:remote:path (user rclone.conf))
+  the `mt:` at the beginning.
+- So in short, up: has 4 possible values which are: `gd` (Upload to GDRIVE_ID), `rc` (Upload to RCLONE_PATH), `rcl` (Select Rclone Path) and `rclone_path` (remote:path (owner rclone.conf) or `mt`:remote:path (user rclone.conf))
+
+------
+
+</details>
+
+<details>
+  <summary><h5>Downloading from tldv.io (Private Meetings)</h5></summary>
+
+For public meetings, no authentication token is required. For private meetings, you need a valid `tldvtoken` cookie value to authenticate:
+
+1. Log in to your account on [tldv.io](https://tldv.io).
+2. Open developer tools in your browser (F12 or right-click -> Inspect).
+3. Go to the **Application** tab (Chrome/Edge) or **Storage** tab (Firefox).
+4. Expand **Cookies** in the sidebar and select `https://tldv.io` or `https://app.tldv.io`.
+5. Find the cookie named `tldvtoken` and copy its value.
+6. Use this token in the bot:
+   - **Globally**: Add the token to `TLDV_TOKEN` in `config.py`.
+   - **Per-command**: Pass the token in the command's custom headers flag, for example:
+     `/mirror https://tldv.io/app/meetings/MEETING_ID -h cookie: tldvtoken=YOUR_TOKEN`
 
 ------
 

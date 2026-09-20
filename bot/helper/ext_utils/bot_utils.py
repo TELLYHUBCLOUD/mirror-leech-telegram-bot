@@ -68,7 +68,7 @@ def bt_selection_buttons(id_):
             "Select Files", f"{Config.BASE_URL}/app/files?gid={id_}&pin={pin}"
         )
     buttons.data_button("Done Selecting", f"sel done {gid} {id_}")
-    buttons.data_button("Cancel", f"sel cancel {gid}")
+    buttons.data_button("Close", "sel close")
     return buttons.build_menu(2)
 
 
@@ -115,6 +115,8 @@ def arg_parser(items, arg_base):
         "-med",
         "-ut",
         "-bt",
+        "-ad",
+        "-tb",
     }
 
     while i < total:
@@ -140,6 +142,8 @@ def arg_parser(items, arg_base):
                     "-med",
                     "-ut",
                     "-bt",
+                    "-ad",
+                    "-tb",
                 ]
             ):
                 arg_base[part] = True

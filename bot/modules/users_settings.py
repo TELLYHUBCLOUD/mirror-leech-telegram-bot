@@ -42,10 +42,11 @@ leech_options = [
     "LEECH_DUMP_CHAT",
     "LEECH_FILENAME_PREFIX",
     "THUMBNAIL_LAYOUT",
-    "CLONE_DUMP_CHATS"
+    "CLONE_DUMP_CHATS",
 ]
 rclone_options = ["RCLONE_CONFIG", "RCLONE_PATH", "RCLONE_FLAGS"]
 gdrive_options = ["TOKEN_PICKLE", "GDRIVE_ID", "INDEX_URL"]
+uploaders_options = ["BUZZHEAVIER_ACCOUNT_ID", "BUZZHEAVIER_FOLDER_ID"]
 
 
 async def get_user_settings(from_user, stype="main"):
@@ -175,6 +176,7 @@ async def get_user_settings(from_user, stype="main"):
             buttons.data_button(
                 "Enable FILES LINKS", f"userset {user_id} tog FILES_LINKS t"
             )
+
         buttons.data_button(
             "Thumbnail Layout", f"userset {user_id} menu THUMBNAIL_LAYOUT"
         )
@@ -206,7 +208,7 @@ Leech Prefix is <code>{escape(lprefix)}</code>
 Leech Destination is <code>{leech_dest}</code>
 Clone Dump Chats is <code>{cdc}</code>
 Leech by <b>{leech_method}</b> session
-HYBRID Leech is <b>{hybrid_leech}</b>
+Hybrid Leech is <b>{hybrid_leech}</b>
 Thumbnail Layout is <b>{thumb_layout}</b>
 Files Links is <b>{fl}</b>
 """
@@ -268,10 +270,31 @@ Gdrive Token <b>{tokenmsg}</b>
 Gdrive ID is <code>{gdrive_id}</code>
 Index URL is <code>{index}</code>
 Stop Duplicate is <b>{sd_msg}</b>"""
+    elif stype == "uploaders":
+        buttons.data_button(
+            "Buzzheavier Account ID", f"userset {user_id} menu BUZZHEAVIER_ACCOUNT_ID"
+        )
+        buttons.data_button(
+            "Buzzheavier Folder ID", f"userset {user_id} menu BUZZHEAVIER_FOLDER_ID"
+        )
+        buttons.data_button("Back", f"userset {user_id} back")
+        buttons.data_button("Close", f"userset {user_id} close")
+        if user_dict.get("BUZZHEAVIER_ACCOUNT_ID", False):
+            bh_acc = user_dict["BUZZHEAVIER_ACCOUNT_ID"]
+        else:
+            bh_acc = "None"
+        if user_dict.get("BUZZHEAVIER_FOLDER_ID", False):
+            bh_fol = user_dict["BUZZHEAVIER_FOLDER_ID"]
+        else:
+            bh_fol = "None"
+        text = f"""<u>Uploaders Settings for {name}</u>
+Buzzheavier Account ID: {bh_acc}
+Buzzheavier Folder ID: {bh_fol}"""
     else:
         buttons.data_button("Leech", f"userset {user_id} leech")
         buttons.data_button("Rclone", f"userset {user_id} rclone")
         buttons.data_button("Gdrive API", f"userset {user_id} gdrive")
+        buttons.data_button("Uploaders", f"userset {user_id} uploaders")
 
         upload_paths = user_dict.get("UPLOAD_PATHS", {})
         if not upload_paths and "UPLOAD_PATHS" not in user_dict and Config.UPLOAD_PATHS:
@@ -337,7 +360,9 @@ Stop Duplicate is <b>{sd_msg}</b>"""
         else:
             ytopt = "None"
 
-        buttons.data_button("Gallery-DL Options", f"userset {user_id} menu GALLERY_DL_OPTIONS")
+        buttons.data_button(
+            "Gallery-DL Options", f"userset {user_id} menu GALLERY_DL_OPTIONS"
+        )
         if user_dict.get("GALLERY_DL_OPTIONS", False):
             gdlopt = user_dict["GALLERY_DL_OPTIONS"]
         elif "GALLERY_DL_OPTIONS" not in user_dict and Config.GALLERY_DL_OPTIONS:
@@ -472,7 +497,12 @@ async def set_option(_, message, option):
             value.append(x.strip().lower())
     elif option == "INDEX_URL":
         value = value
-    elif option in ["UPLOAD_PATHS", "FFMPEG_CMDS", "YT_DLP_OPTIONS", "GALLERY_DL_OPTIONS"]:
+    elif option in [
+        "UPLOAD_PATHS",
+        "FFMPEG_CMDS",
+        "YT_DLP_OPTIONS",
+        "GALLERY_DL_OPTIONS",
+    ]:
         if value.startswith("{") and value.endswith("}"):
             try:
                 value = eval(value)
@@ -522,6 +552,8 @@ async def get_menu(option, message, user_id):
         back_to = "rclone"
     elif option in gdrive_options:
         back_to = "gdrive"
+    elif option in uploaders_options:
+        back_to = "uploaders"
     else:
         back_to = "back"
     buttons.data_button("Back", f"userset {user_id} {back_to}")
@@ -643,7 +675,7 @@ async def edit_user_settings(client, query):
         await query.answer("Not Yours!", show_alert=True)
     elif data[2] == "setevent":
         await query.answer()
-    elif data[2] in ["leech", "gdrive", "rclone"]:
+    elif data[2] in ["leech", "gdrive", "rclone", "uploaders"]:
         await query.answer()
         await update_user_settings(query, data[2])
     elif data[2] == "menu":
